@@ -1,0 +1,242 @@
+---
+  title: "Triad testing for ChatGPT"
+author: "Jasper Robbins"
+date: "2023-08-21"
+output:
+  html_document:
+  df_print: paged
+toc: yes
+html_notebook: null
+theme: united
+bibliography: ../data/references/references.bib
+csl: ../data/references/apa.csl
+editor_options:
+  markdown: null
+wrap: 72
+---
+
+```{r setup, include=FALSE,echo=FALSE,warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(httr)
+library(jsonlite)
+library(dplyr)
+library(stringr)
+source('./functions/processingHelpers.R')
+source('./functions/gptHelpers.R')
+```
+
+## Add your API Key here
+```{r setup API key}
+# Replace this API key with the one you received when registering.
+apiKey = ""
+```
+
+## Read data in
+```{r import data}
+X = process_triad_data(
+  ''
+)
+```
+
+
+## Edit the prompt template here
+```{r prompt template}
+
+# Format a triad string for each row of format: '{word_A,word_B,word_C};'
+X = X %>% rowwise %>% 
+  mutate(
+    triad = paste0("{", paste(A, B, C, sep=","), "};", sep="")
+  )
+
+# Update your prompt to ChatGPT here.
+# To change prompt structure you will to alter generate_prompts.
+PROMPT_START = "In a psychology experiment
+          participants were asked to choose which pair out of a set of three 
+          words has the strongest related meaning.
+          Participants judged several items, with options for each item between 
+          curly brackets and items separated by semicolons.
+          For each item return the two most related words without further 
+          explanation. Separate responses by semicolons.
+          
+          Items: ###
+          "
+
+PROMPT_END = "\n            ###\n  "
+```
+
+One of the challenges is coming up with good prompting techniques. There's a lot of information
+available including on the [OpenAI website](https://help.openai.com/en/articles/6654000-best-practices-for-prompt-engineering-with-openai-api).
+Another option is to look at published papers and see what strategies were used there (see slides).
+
+## Create prompts with N TRIADS_PER_PROMPT in them
+```{R prompt building}
+
+# Specify how many TRIADS_PER_PROMPT you want to ask per prompt
+TRIADS_PER_PROMPT = 10
+
+# Optionally filter triads, e.g.
+X <- X %>% filter(dataset %in% c("abstract"))
+# X <- X %>% filter(category %in% c("Feeling", "Emotion"))
+
+# Generate a dataframe of prompts
+prompts = generate_prompts(
+  X, 
+  TRIADS_PER_PROMPT, 
+  PROMPT_START, 
+  PROMPT_END
+)
+
+cat("You have", nrow(prompts), "prompts.")
+```
+
+
+## Choose gpt model and check cost for full dataset
+```{r choose gpt model}
+# Choose your gpt model
+MODEL = "gpt-3.5-turbo" # or "gpt-4"
+
+# How much variance in answers?
+TEMPERATURE = 0
+
+# Check the cost
+estimate_cost(
+  MODEL, 
+  nrow(prompts), 
+  paste(PROMPT_START, PROMPT_END), TRIADS_PER_PROMPT
+)
+```
+
+## Ask ChatGPT a single question
+```{r sendRequest}
+# Send one prompt request to ChatGPT
+response = ask_gpt(MODEL, TEMPERATURE, prompts[1,])
+
+# Process response and output a tibble
+print(tibble(response=process_response(response)))
+
+```
+
+## Full dataset querying
+```{r runExperiment}
+
+# Create dataframe to store results
+data <- X %>% 
+  select(A, B, C, difficulty, human_coded_answer, dataset, category) %>% 
+  add_column(
+    gpt_answer = NA,
+    gpt_coded_answer = NA,
+    correct = NA,
+    gpt_message = NA,
+    position = NA
+  )
+
+num_prompts = ceiling(nrow(X)/TRIADS_PER_PROMPT)
+cat("Processing", num_prompts, "prompts: ")
+
+# For each prompt...
+for (i in seq(1, num_prompts)) {
+  
+  # call to chatGPT
+  response = ask_gpt(MODEL, TEMPERATURE, prompts[i,])
+  
+  # store its responses (both the full message and the individual answers)
+  gpt_message = process_response(response)
+  start = (i-1)*TRIADS_PER_PROMPT + 1
+  row_range = seq(start, min(start + TRIADS_PER_PROMPT - 1, nrow(data)))
+  data$gpt_answer[row_range] <- gpt_message
+  
+  # For each triad...
+  for (j in row_range) {
+    
+    # Convert the words into AB/AC/BC
+    coded_answer = str_c(
+      ifelse(grepl(data$A[j], data$gpt_answer[j]), "A", ""),
+      ifelse(grepl(data$B[j], data$gpt_answer[j]), "B", ""),
+      ifelse(grepl(data$C[j], data$gpt_answer[j]), "C", ""),
+      sep = ""
+    )
+    
+    # Store the answer, and if it is correct
+    data$gpt_coded_answer[j] = coded_answer
+    data$correct[j] = grepl(coded_answer, data$human_coded_answer[j])
+    data$gpt_message[j] = content(response)$choices[[1]]$message$content
+    data$position[j] = (j-1) %% TRIADS_PER_PROMPT + 1
+  }
+  
+  cat(i, " ")
+}
+
+datafalse <- data %>%
+  filter(correct == "FALSE") %>%
+  select(
+    correct,
+    dataset,
+    category, 
+    A, B, C, 
+    human_coded_answer,
+    gpt_coded_answer
+  )
+
+```
+
+## Process and summarise results
+```{r displayResults}
+percentage_by_category <- data %>% 
+  group_by(category) %>% 
+  summarise(accuracy = round(sum(correct, na.rm = TRUE) / n(), 2)) %>% 
+  select(category, accuracy)
+
+percentage_by_position <- data %>% 
+  group_by(position) %>% 
+  summarise(accuracy = round(sum(correct, na.rm = TRUE) / n(), 2)) %>% 
+  select(position, accuracy)
+  
+positional_pearson = cor.test(
+  percentage_by_position$position, 
+  percentage_by_position$accuracy
+)
+
+positional_spearman = cor.test(
+  percentage_by_position$position, 
+  percentage_by_position$accuracy,
+  method="spearman"
+)
+
+summary_stats <- tibble(
+    "------OVERALL------" = "----------------------------",
+    score = paste(sum(data$correct, na.rm=TRUE), "/", nrow(X)),
+    percentage = paste(100*sum(data$correct, na.rm=TRUE)/nrow(X), "%"),
+    "---BY_DIFFICULTY---" = "----------------------------",
+    avg_correct_difficulty = round(mean(data$difficulty[data$correct]), 2),
+    avg_incorrect_difficulty = round(mean(data$difficulty[!data$correct]), 2),
+    "----BY_POSITION----" = "----------------------------",
+    pearson = paste(
+      "r:", round(positional_pearson$estimate, 2), "|",
+      "p:", round(positional_pearson$p.value, 3)
+    ),
+    spearman = paste(
+      "r:", round(positional_spearman$estimate, 2), "|",
+      "p:", round(positional_spearman$p.value, 3)
+    )
+  ) %>% 
+  mutate(across(everything(), toString)) %>% 
+  pivot_longer(
+    everything(),
+    names_to = "stat",
+    values_to = "value"
+  )
+
+# % by correct by the position of the triad in prompt
+print(percentage_by_position)
+
+# % by correct by the category of the triad in prompt
+print(percentage_by_category)
+
+# Incorrect response data
+print(datafalse)
+
+# Overall summary stats
+print(summary_stats)
+#
+```
