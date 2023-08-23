@@ -3,7 +3,7 @@ Mini data collection and processing pipeline for testing ChatGPT on Triad word t
 
 ## Triads
 A triad is a word task where the participant has to select the two words that are most related
-`{ complaint, harm, phobia }`
+- `{ complaint, harm, phobia }`
 
 The answer is formatted programmatically as the letters corresponding to the word pair, so complaint-harm would be AB.
 
