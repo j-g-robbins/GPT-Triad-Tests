@@ -16,12 +16,12 @@ source("./functions/gpt_helpers.R")
 ```
 
 ## Add your API Key here
-```{r setup API key}
+```{r setup api key}
 # Replace this API key with the one you received when registering.
 api_key <- "sk-..."
 ```
 
-## Read data in
+## Read data from file
 ```{r import data}
 triad_data <- process_triad_data(
   "your_file_path"
@@ -29,7 +29,7 @@ triad_data <- process_triad_data(
 ```
 
 
-## Edit the prompt template here
+## Edit the prompt template
 ```{r prompt template}
 
 # Format a triad string for each row of format: '{word_A,word_B,word_C};'
@@ -59,7 +59,7 @@ One of the challenges is coming up with good prompting techniques. There's a lot
 available including on the [OpenAI website](https://help.openai.com/en/articles/6654000-best-practices-for-prompt-engineering-with-openai-api).
 Another option is to look at published papers and see what strategies were used there (see slides).
 
-## Create prompts with N TRIADS_PER_PROMPT in them
+## Adjust specs and generate prompts
 ```{R prompt building}
 
 # Specify how many TRIADS_PER_PROMPT you want to ask per prompt
@@ -81,35 +81,35 @@ cat("You have", nrow(prompts), "prompts.")
 ```
 
 
-## Choose gpt model and check cost for full dataset
-```{r choose gpt model}
+## Adjust gpt settings and check cost for full dataset
+```{r gpt costing}
 # Choose your gpt model
-model <- "gpt-3.5-turbo" # or "gpt-4"
+gpt_model <- "gpt-3.5-turbo" # or "gpt-4"
 
-# How much variance in answers?
-temperature <- 0
+# I believe increases the variance between answers
+gpt_temperature <- 0
 
 # Check the cost
 estimate_cost(
-  model,
+  gpt_model,
   nrow(prompts),
   paste(prompt_start, prompt_end),
   TRIADS_PER_PROMPT
 )
 ```
 
-## Ask ChatGPT a single question
-```{r sendRequest}
+## Query ChatGPT on a single prompt
+```{r query gpt}
 # Send one prompt request to ChatGPT
-response <- ask_gpt(model, temperature, prompts[1, ], api_key)
+response <- ask_gpt(gpt_model, gpt_temperature, prompts[1, ], api_key)
 
 # Process response and output a tibble
 print(tibble(response = process_response(response)))
 
 ```
 
-## Full dataset querying
-```{r runExperiment}
+## Run testing, collect and process ChatGPT repsonse data
+```{r data collection}
 
 # Create dataframe to store results
 data <- triad_data %>%
@@ -129,7 +129,7 @@ cat("Processing", num_prompts, "prompts: ")
 for (i in seq(1, num_prompts)) {
 
   # call to chatGPT
-  response <- ask_gpt(model, temperature, prompts[i, ], api_key)
+  response <- ask_gpt(gpt_model, gpt_temperature, prompts[i, ], api_key)
 
   # store its responses (both the full message and the individual answers)
   gpt_message <- process_response(response)
@@ -172,7 +172,7 @@ datafalse <- data %>%
 ```
 
 ## Process and summarise results
-```{r displayResults}
+```{r results}
 percentage_by_category <- data %>%
   group_by(category) %>%
   summarise(accuracy = round(sum(correct, na.rm = TRUE) / n(), 2)) %>%
@@ -233,5 +233,4 @@ print(datafalse)
 
 # Overall summary stats
 print(summary_stats)
-#
 ```
