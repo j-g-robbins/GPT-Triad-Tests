@@ -15,7 +15,7 @@ Required columns are:
 
 ## Customising
 Fields you can easily customise are
-- Prompt formatting
-- Number of triads per prompt
-- GPT model
-- GPT temperature
+- Prompt formatting: `prompt_start` and `prompt_end` (note: add text between triads would be more involved)
+- Triads per prompt: `triads_per_prompt` 
+- GPT Model: `gpt_model`
+- GPT Temperature: `gpt_temperature`
