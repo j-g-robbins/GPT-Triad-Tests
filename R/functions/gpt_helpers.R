@@ -24,12 +24,12 @@ estimate_cost <- function(model, num_requests, prompt, num_triads) {
   # Completion tokens estimate
   completion_tokens <- num_triads * 4
 
-  cost <- nrow(num_requests) * (
+  cost <- num_requests * (
     prompt_tokens * p_token_rate +
       completion_tokens * c_token_rate
   ) / 1000
   print("-----------------------------------------")
-  print(paste("It will cost around $", round(cost, 5), "to run on all triads."))
+  print(paste("It will cost approx. $", round(cost, 5), "to run all prompts."))
   print("-----------------------------------------")
 }
 
