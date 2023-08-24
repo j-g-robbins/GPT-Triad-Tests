@@ -86,7 +86,7 @@ process_response <- function(response, similarity_scores = FALSE) {
     similarity <- as.numeric(
       unlist(str_extract_all(triad_results, "[0-9\\.]+"))
     )
-    results <- bind_rows(results, tibble(similarity))
+    results <- tibble(similarity)
     results <- results %>%
       mutate(word_pairs = word_pairs) %>%
       distinct(word_pairs, .keep_all = TRUE) %>%
@@ -102,7 +102,7 @@ process_response <- function(response, similarity_scores = FALSE) {
       paste(words[i], words[i + 1], sep = "-")
     })
 
-    results <- bind_rows(results, tibble(word_pairs)) %>%
+    results <- tibble(word_pairs) %>%
       distinct(word_pairs, .keep_all = TRUE)
   }
 

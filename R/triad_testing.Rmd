@@ -61,7 +61,7 @@ prompt_end <- ""
 ```{R prompt building}
 
 # Specify how many triads_per_prompt you want to ask per prompt
-triads_per_prompt = 1
+triads_per_prompt = 10
 
 # Specify if using similarity scores for word-pairs
 similarity_scores = TRUE
