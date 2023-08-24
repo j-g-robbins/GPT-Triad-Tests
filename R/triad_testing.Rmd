@@ -183,8 +183,6 @@ datafalse <- data %>%
     gpt_coded_answer
   )
 
-```
-
 percentage_by_category <- data %>%
   group_by(category) %>%
   summarise(
@@ -209,10 +207,14 @@ percentage_by_position <- data %>%
   ) %>%
   select(position, accuracy, count)
 
-positional_pearson <- cor.test(
-  percentage_by_position$position,
-  percentage_by_position$accuracy,
-  method = "pearson"
+positional_pearson <- ifelse(
+  triads_per_prompt > 1, 
+  cor.test(
+    percentage_by_position$position,
+    percentage_by_position$accuracy,
+    method = "pearson"
+  ),
+  NA
 )
 
 summary_stats <- tibble(
@@ -240,10 +242,14 @@ summary_stats <- tibble(
   "BC_%" = percentage_by_answer$accuracy[
     percentage_by_answer$human_coded_answer == "BC,"
   ],
-  triad_position_pearson = paste(
-    "r:", format(round(positional_pearson$estimate, 2), nsmall = 2), "|",
-    "p:", format(round(positional_pearson$p.value, 3), nsmall = 3)
-  ),
+  triad_position_pearson = ifelse(
+    !is.na(positional_pearson), 
+    paste(
+      "r:", format(round(positional_pearson$estimate, 2), nsmall = 2), "|",
+      "p:", format(round(positional_pearson$p.value, 3), nsmall = 3)
+    ),
+    NA
+  )
 ) %>%
   mutate(across(everything(), toString)) %>%
   pivot_longer(
