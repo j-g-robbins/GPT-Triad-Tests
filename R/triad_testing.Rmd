@@ -40,37 +40,39 @@ triad_data <- triad_data %>%
   )
 
 # Update your prompt to ChatGPT here.
-prompt_start <- "In a psychology experiment
-          participants were asked to choose which pair out of a set of three 
-          words has the strongest related meaning.
-          Participants judged several items, with options for each item between 
-          curly brackets and items separated by semicolons.
-          For each item return the two most related words without further 
-          explanation. Separate responses by semicolons.
-          
-          Items: ###
-          "
-prompt_end <- "\n            ###\n  "
+prompt_start <- "We are going to present you with three words. Your task is to analyse the meaning of all possible word pairs in the triad, and subsequently report the probability that you would choose each pair in the triad as more similar than the others. Your choice is to be based solely in terms of semantic word meaning. This means that phonemic or visual similarity of the words should not be factored into your choice.   
+Here are the steps to complete the analysis:
+Step 1: Closely scrutinize every possible pair in the triad.
+Step 2: After detailed consideration, report the probability that you would select each pair as most semantically similar.
+You will now be provided with two examples. Note that the specific probabilities of the provided examples are arbitrary for the sake of the example, and the probabilities in the example are not indicative of their true semantic similarity.
+Example 1:
+       	Presented: {Angel; Halo; Plate}
+       	Response: {Angel – Halo: 0.60} {Angel – Plate: 0.20}, {Halo – Plate: 0.20}
+Example 2:
+Presented: {Hair; Cage; Cheap}
+        	Response: {Hair – Cage: 0.15} {Hair – Cheap: 0.60} {Cage – Cheap: 0.25}
+"
+prompt_end <- ""
 ```
 
-One of the challenges is coming up with good prompting techniques. There's a lot of information
-available including on the [OpenAI website](https://help.openai.com/en/articles/6654000-best-practices-for-prompt-engineering-with-openai-api).
-Another option is to look at published papers and see what strategies were used there (see slides).
+## NOTE - If you want to ask chatgpt to return the most similar pair, set similarity_scores to false. If you want to ask for similarity ratings for every word pair, set similarity_scores to true. This requires chatgpt to respond with {word_1 word_2 similarity_rating} for each triad.
 
 ## Adjust specs and generate prompts
 ```{R prompt building}
 
-# Specify how many TRIADS_PER_PROMPT you want to ask per prompt
-TRIADS_PER_PROMPT = 10
+# Specify how many triads_per_prompt you want to ask per prompt
+triads_per_prompt = 1
+
+# Specify if using similarity scores for word-pairs
+similarity_scores = TRUE
 
 # Optionally filter triads, e.g.
 triad_data <- triad_data %>% filter(dataset %in% c("abstract"))
-# triad_data <- triad_data %>% filter(category %in% c("Feeling", "Emotion"))
 
 # Generate a dataframe of prompts
 prompts = generate_prompts(
-  triad_data, 
-  TRIADS_PER_PROMPT, 
+  triad_data,
+  triads_per_prompt, 
   prompt_start, 
   prompt_end
 )
@@ -93,7 +95,7 @@ estimate_cost(
   gpt_model,
   nrow(prompts),
   paste(prompt_start, prompt_end),
-  TRIADS_PER_PROMPT
+  triads_per_prompt
 )
 ```
 
@@ -103,13 +105,12 @@ estimate_cost(
 response <- ask_gpt(gpt_model, gpt_temperature, prompts[1, ], api_key)
 
 # Process response and output a tibble
-print(tibble(response = process_response(response)))
+print(process_response(response, similarity_scores))
 
 ```
 
 ## Run testing, collect and process ChatGPT repsonse data
 ```{r data collection}
-
 # Create dataframe to store results
 data <- triad_data %>%
   select(A, B, C, difficulty, human_coded_answer, dataset, category) %>%
@@ -130,10 +131,21 @@ for (i in seq(1, num_prompts)) {
   response <- ask_gpt(gpt_model, gpt_temperature, prompts[i, ], api_key)
 
   # store its responses (both the full message and the individual answers)
-  gpt_message <- process_response(response)
-  start <- (i - 1) * TRIADS_PER_PROMPT + 1
-  row_range <- seq(start, min(start + TRIADS_PER_PROMPT - 1, nrow(data)))
-  data$gpt_answer[row_range] <- gpt_message
+  gpt_message <- process_response(response, similarity_scores)
+  start <- (i - 1) * triads_per_prompt + 1
+  row_range <- seq(start, min(start + triads_per_prompt - 1, nrow(data)))
+  if (similarity_scores) {
+    answers <- gpt_message %>% 
+      group_by(group = (row_number() - 1) %/% 3) %>%
+      filter(similarity == max(similarity)) %>%
+      distinct(similarity, .keep_all = TRUE) %>%
+      ungroup() %>%
+      select(-group, -similarity)
+  } else {
+    answers <- gpt_message
+  }
+  
+  data$gpt_answer[row_range] <- answers$word_pairs
 
   # For each triad...
   for (j in row_range) {
@@ -150,12 +162,16 @@ for (i in seq(1, num_prompts)) {
     data$gpt_coded_answer[j] <- coded_answer
     data$correct[j] <- grepl(coded_answer, data$human_coded_answer[j])
     data$gpt_message[j] <- content(response)$choices[[1]]$message$content
-    data$position[j] <- (j - 1) %% TRIADS_PER_PROMPT + 1
+    data$position[j] <- (j - 1) %% triads_per_prompt + 1
   }
 
   cat(i, " ")
 }
 
+```
+
+## Process and summarise results
+```{r results}
 datafalse <- data %>%
   filter(correct == "FALSE") %>%
   select(
@@ -169,29 +185,34 @@ datafalse <- data %>%
 
 ```
 
-## Process and summarise results
-```{r results}
 percentage_by_category <- data %>%
   group_by(category) %>%
-  summarise(accuracy = round(sum(correct, na.rm = TRUE) / n(), 2)) %>%
-  select(category, accuracy)
+  summarise(
+    accuracy = round(sum(correct, na.rm = TRUE) / n(), 2),
+    count = n(),
+  ) %>%
+  select(category, accuracy, count)
+
+percentage_by_answer <- data %>%
+  group_by(human_coded_answer) %>%
+  summarise(
+    accuracy = round(sum(correct, na.rm = TRUE) / n(), 2),
+    count = n(),
+  ) %>%
+  select(human_coded_answer, accuracy, count)
 
 percentage_by_position <- data %>%
   group_by(position) %>%
-  summarise(accuracy = round(sum(correct, na.rm = TRUE) / n(), 2)) %>%
-  select(position, accuracy)
+  summarise(
+    accuracy = round(sum(correct, na.rm = TRUE) / n(), 2),
+    count = n(),
+  ) %>%
+  select(position, accuracy, count)
 
 positional_pearson <- cor.test(
   percentage_by_position$position,
   percentage_by_position$accuracy,
   method = "pearson"
-)
-
-positional_spearman <- cor.test(
-  percentage_by_position$position,
-  percentage_by_position$accuracy,
-  method = "spearman",
-  exact = FALSE
 )
 
 summary_stats <- tibble(
@@ -201,18 +222,28 @@ summary_stats <- tibble(
     100 * sum(data$correct, na.rm = TRUE) / nrow(triad_data),
     "%"
   ),
-  "---BY_DIFFICULTY---" = "----------------------------",
-  avg_correct_difficulty = round(mean(data$difficulty[data$correct]), 2),
-  avg_incorrect_difficulty = round(mean(data$difficulty[!data$correct]), 2),
-  "----BY_POSITION----" = "----------------------------",
-  pearson = paste(
+  "-------OTHER-------" = "----------------------------",
+  avg_correct_difficulty = round(
+    mean(data$difficulty[data$correct], na.rm = TRUE), 
+    2
+  ),
+  avg_incorrect_difficulty = round(
+    mean(data$difficulty[!data$correct], na.rm = TRUE), 
+    2
+  ),
+  "AB_%" = percentage_by_answer$accuracy[
+    percentage_by_answer$human_coded_answer == "AB,"
+  ],
+  "AC_%" = percentage_by_answer$accuracy[
+    percentage_by_answer$human_coded_answer == "AC,"
+  ],
+  "BC_%" = percentage_by_answer$accuracy[
+    percentage_by_answer$human_coded_answer == "BC,"
+  ],
+  triad_position_pearson = paste(
     "r:", format(round(positional_pearson$estimate, 2), nsmall = 2), "|",
     "p:", format(round(positional_pearson$p.value, 3), nsmall = 3)
   ),
-  spearman = paste(
-    "r:", format(round(positional_spearman$estimate, 2), nsmall = 2), "|",
-    "p:", format(round(positional_spearman$p.value, 3), nsmall = 3)
-  )
 ) %>%
   mutate(across(everything(), toString)) %>%
   pivot_longer(
@@ -226,6 +257,9 @@ print(percentage_by_position)
 
 # % by correct by the category of the triad in prompt
 print(percentage_by_category)
+
+# % by correct by the code of the triad answer
+print(percentage_by_answer)
 
 # Incorrect response data
 print(datafalse)

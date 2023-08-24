@@ -2,6 +2,8 @@
 
 library(jsonlite)
 library(httr)
+library(dplyr)
+library(stringr)
 
 # Roughly estimates the cost of a request given the prompt and number of triads
 # @param model          A string representing the ChatGPT model
@@ -61,18 +63,50 @@ ask_gpt <- function(model, temperature, prompt, api_key) {
 # Processes the response from chatgpt and returns a list of triad answers
 # @param response       A json structured response from OpenAI
 # @return result_pairs  A list of triad answers
-process_response <- function(response) {
-  message <- content(response)$choices[[1]]$message$content
+process_response <- function(response, similarity_scores = FALSE) {
+  message <- tolower(content(response)$choices[[1]]$message$content)
 
-  words <- unlist(strsplit(message, "[^a-zA-Z]+"))
+  if (similarity_scores) {
+    triad_results <- str_extract_all(
+      message,
+      "\\{[\\w]+[^\\w]+[\\w]+[^\\w]+\\d+(\\.\\d+)?\\}"
+    )[[1]]
+    if (length(triad_results) < 1) {
+      triad_results <- str_extract_all(
+        message,
+        "[\\w]+ - [\\w]+[^\\w]+\\d+(\\.\\d+)?"
+      )[[1]]
+    }
 
-  if (length(words) <= 1) {
-    return("tmp")
+    words <- unlist(str_extract_all(triad_results, "[a-zA-Z]+"))
+    word_pairs <- sapply(seq(1, length(words), 2), function(i) {
+      paste(words[i], words[i + 1], sep = "-")
+    })
+
+    similarity <- as.numeric(
+      unlist(str_extract_all(triad_results, "[0-9\\.]+"))
+    )
+    results <- bind_rows(results, tibble(similarity))
+    results <- results %>%
+      mutate(word_pairs = word_pairs) %>%
+      distinct(word_pairs, .keep_all = TRUE) %>%
+      select(word_pairs, everything())
+  } else {
+    message <- str_replace_all(
+      message,
+      "(\\{[\\w]+[^\\w]+[\\w]+[^\\w]+[\\w]+\\}|most similar pair)",
+      ""
+    )
+    words <- unlist(str_extract_all(message, "[a-zA-Z]+"))
+    word_pairs <- sapply(seq(1, length(words), 2), function(i) {
+      paste(words[i], words[i + 1], sep = "-")
+    })
+
+    results <- bind_rows(results, tibble(word_pairs)) %>%
+      distinct(word_pairs, .keep_all = TRUE)
   }
 
-  result_pairs <-  sapply(seq(1, length(words), 2), function(i) {
-    paste(words[i], words[i + 1], sep = "-")
-  })
 
-  return(result_pairs)
+
+  return(results)
 }

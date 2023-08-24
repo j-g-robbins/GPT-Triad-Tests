@@ -40,9 +40,9 @@ process_triad_data <- function(file_path, answer_col = NULL) {
       mutate(
         max_val = pmax(pAB, pAC, pBC),
         human_coded_answer = str_c(
-          ifelse(pAB == max_val, "AB|", ""),
-          ifelse(pAC == max_val, "AC|", ""),
-          ifelse(pBC == max_val, "BC|", ""),
+          ifelse(pAB == max_val, "AB,", ""),
+          ifelse(pAC == max_val, "AC,", ""),
+          ifelse(pBC == max_val, "BC,", ""),
           sep = ""
         ),
         difficulty = (1 - max_val) * 3 / 2,
@@ -63,8 +63,13 @@ process_triad_data <- function(file_path, answer_col = NULL) {
 # @param num_triads     An integer representing the number of triads per prompt
 # @param prompt_start   A string for the prompt section preceeding the triads
 # @param prompt_end     A string for the prompt section following the triads
-# @return prompts       A datafram containing prompt strings
-generate_prompts <- function(triad_data, num_triads, prompt_start, prompt_end) {
+# @return prompts       A dataframe containing prompt strings
+generate_prompts <- function(
+  triad_data,
+  num_triads,
+  prompt_start,
+  prompt_end = ""
+) {
   prompts <- data.frame(prompt = character(), stringsAsFactors = FALSE)
 
   # Remaining triads for final prompt
@@ -75,8 +80,12 @@ generate_prompts <- function(triad_data, num_triads, prompt_start, prompt_end) {
 
     # Add the triads together, format correctly
     triads <- str_sub(
-      paste(triad_data[seq(i, i + num_triads - 1), ]$triad, collapse = ""),
-      1, -2
+      paste(
+        triad_data[seq(i, i + num_triads - 1), ]$triad, 
+        collapse = ""
+      ),
+      1,
+      -2
     )
 
     next_prompt <- paste(prompt_start, triads, prompt_end, sep = "")
