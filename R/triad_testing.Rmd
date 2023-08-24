@@ -40,7 +40,6 @@ triad_data <- triad_data %>%
   )
 
 # Update your prompt to ChatGPT here.
-# To change prompt structure you will to alter generate_prompts.
 prompt_start <- "In a psychology experiment
           participants were asked to choose which pair out of a set of three 
           words has the strongest related meaning.
@@ -51,7 +50,6 @@ prompt_start <- "In a psychology experiment
           
           Items: ###
           "
-
 prompt_end <- "\n            ###\n  "
 ```
 
@@ -77,7 +75,8 @@ prompts = generate_prompts(
   prompt_end
 )
 
-cat("You have", nrow(prompts), "prompts.")
+num_prompts = nrow(prompts)
+cat("You have", num_prompts, "prompts.")
 ```
 
 
@@ -99,7 +98,7 @@ estimate_cost(
 ```
 
 ## Query ChatGPT on a single prompt
-```{r query gpt}
+```{r test query}
 # Send one prompt request to ChatGPT
 response <- ask_gpt(gpt_model, gpt_temperature, prompts[1, ], api_key)
 
@@ -122,7 +121,6 @@ data <- triad_data %>%
     position = NA
   )
 
-num_prompts <- ceiling(nrow(triad_data) / TRIADS_PER_PROMPT)
 cat("Processing", num_prompts, "prompts: ")
 
 # For each prompt...
@@ -192,7 +190,8 @@ positional_pearson <- cor.test(
 positional_spearman <- cor.test(
   percentage_by_position$position,
   percentage_by_position$accuracy,
-  method = "spearman"
+  method = "spearman",
+  exact = FALSE
 )
 
 summary_stats <- tibble(
