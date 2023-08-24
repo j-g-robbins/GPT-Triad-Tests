@@ -19,3 +19,4 @@ Fields you can easily customise are
 - Triads per prompt: `triads_per_prompt` 
 - GPT Model: `gpt_model`
 - GPT Temperature: `gpt_temperature`
+- Similarity Ratings: `similarity_scores` (if asking chatgpt to rate the similarity of each word-pair)
