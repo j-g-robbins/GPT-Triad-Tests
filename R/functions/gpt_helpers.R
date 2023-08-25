@@ -37,11 +37,17 @@ estimate_cost <- function(model, num_requests, prompt, num_triads) {
 
 
 # Sends a request to OpenAI API
-# @param model          A string representing the ChatGPT model
-# @param temperature    A decimal [0, 1] representing the randomness in response
 # @param prompt         A string of the prompt to be asked
+# @param model          A string representing the ChatGPT model
+# @param temperature    A decimal representing variation in responses, default 0
+# @param api_key        A string of the OpenAI api key being used
 # @return response      A json structured response from OpenAI
-ask_gpt <- function(model, temperature, prompt, api_key) {
+ask_gpt <- function(
+  prompt,
+  model,
+  temperature = 0,
+  api_key
+) {
   response <- POST(
     url = "https://api.openai.com/v1/chat/completions",
     add_headers(Authorization = paste("Bearer", api_key)),
