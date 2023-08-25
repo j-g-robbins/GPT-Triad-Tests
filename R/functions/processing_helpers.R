@@ -1,6 +1,7 @@
 # Helper functions for processing triad data
 
 library(tidyverse)
+library(httr)
 library(dplyr)
 library(stringr)
 
@@ -81,7 +82,7 @@ generate_prompts <- function(
     # Add the triads together, format correctly
     triads <- str_sub(
       paste(
-        triad_data[seq(i, i + num_triads - 1), ]$triad, 
+        triad_data[seq(i, i + num_triads - 1), ]$triad,
         collapse = ""
       ),
       1,
