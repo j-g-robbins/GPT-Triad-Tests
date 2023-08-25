@@ -59,6 +59,13 @@ ask_gpt <- function(model, temperature, prompt, api_key) {
   return(response)
 }
 
+extract_pairs <- function(message) {
+  words <- unlist(str_extract_all(message, "[a-zA-Z]+"))
+  word_pairs <- sapply(seq(1, length(words), 2), function(i) {
+    paste(words[i], words[i + 1], sep = "-")
+  })
+  return(word_pairs)
+}
 
 # Processes the response from chatgpt and returns a list of triad answers
 # @param response       A json structured response from OpenAI
@@ -66,47 +73,68 @@ ask_gpt <- function(model, temperature, prompt, api_key) {
 process_response <- function(response, similarity_scores = FALSE) {
   message <- tolower(content(response)$choices[[1]]$message$content)
 
+  # Remove where gpt repeats the triad, e.g., "{word1, word2, word3}"
+  message <- str_replace_all(
+    message,
+    "(\\{[\\w]+[^\\w]+[\\w]+[^\\w]+[\\w]+\\}|most similar pair)",
+    ""
+  )
+
   if (similarity_scores) {
+    # Select similarity scores, e.g., "{word1 and word2, 0.1}"
     triad_results <- str_extract_all(
       message,
       "\\{[\\w]+[^\\w]+[\\w]+[^\\w]+\\d+(\\.\\d+)?\\}"
     )[[1]]
+
+    # Try another method for the same thing if that failed
     if (length(triad_results) < 1) {
       triad_results <- str_extract_all(
         message,
-        "[\\w]+ - [\\w]+[^\\w]+\\d+(\\.\\d+)?"
+        "[\\w]+ (-|–|,) [\\w]+[^\\w]+\\d+(\\.\\d+)?"
       )[[1]]
     }
 
-    words <- unlist(str_extract_all(triad_results, "[a-zA-Z]+"))
-    word_pairs <- sapply(seq(1, length(words), 2), function(i) {
-      paste(words[i], words[i + 1], sep = "-")
-    })
+    # Group and save every 2 words (i.e., every triad answer)
+    word_pairs <- extract_pairs(message)
 
+    # Save every similarity score (e.g., 0.8)
     similarity <- as.numeric(
       unlist(str_extract_all(triad_results, "[0-9\\.]+"))
     )
+
+    # Store results
     results <- tibble(similarity)
     results <- results %>%
       mutate(word_pairs = word_pairs) %>%
       distinct(word_pairs, .keep_all = TRUE) %>%
       select(word_pairs, everything())
-  } else {
-    message <- str_replace_all(
-      message,
-      "(\\{[\\w]+[^\\w]+[\\w]+[^\\w]+[\\w]+\\}|most similar pair)",
-      ""
-    )
-    words <- unlist(str_extract_all(message, "[a-zA-Z]+"))
-    word_pairs <- sapply(seq(1, length(words), 2), function(i) {
-      paste(words[i], words[i + 1], sep = "-")
-    })
 
+  } else {
+    # When asking ChatGPT only for the most similar pair
+    # Find the answer
+    triad_results <- str_extract_all(
+      message,
+      "\\{[\\w]+[^\\w]+[\\w]+\\}"
+    )[[1]]
+    # Try another method if that failed
+    if (length(triad_results) < 1) {
+      triad_results <- str_extract_all(
+        message,
+        "\\{[\\w]+ (-|–|,) [\\w]+\\}"
+      )[[1]]
+    }
+
+    # Else just try the message itself
+    if (length(triad_results) < 1) {
+      triad_results <- message
+    }
+
+    # Group and save every 2 words (i.e., every triad answer)
+    word_pairs <- extract_pairs(triad_results)
     results <- tibble(word_pairs) %>%
       distinct(word_pairs, .keep_all = TRUE)
   }
-
-
 
   return(results)
 }
