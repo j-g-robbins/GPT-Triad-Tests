@@ -6,11 +6,6 @@ library(dplyr)
 library(stringr)
 
 # Roughly estimates the cost of a request given the prompt and number of triads
-# @param model          A string representing the ChatGPT model
-# @param num_requests   An integer reprsenting the number of requests to be sent
-# @param prompt         A string of the prompt to be asked
-# @param num_triads     An integer representing the number of triads per prompt
-# @return None
 estimate_cost <- function(model, num_requests, prompt, num_triads) {
   if (model == "gpt-3.5-turbo") {
     p_token_rate <- 0.0015
@@ -37,11 +32,6 @@ estimate_cost <- function(model, num_requests, prompt, num_triads) {
 
 
 # Sends a request to OpenAI API
-# @param prompt         A string of the prompt to be asked
-# @param model          A string representing the ChatGPT model
-# @param temperature    A decimal representing variation in responses, default 0
-# @param api_key        A string of the OpenAI api key being used
-# @return response      A json structured response from OpenAI
 ask_gpt <- function(
   prompt,
   model,
@@ -65,82 +55,23 @@ ask_gpt <- function(
   return(response)
 }
 
-extract_pairs <- function(message) {
-  words <- unlist(str_extract_all(message, "[a-zA-Z]+"))
-  word_pairs <- sapply(seq(1, length(words), 2), function(i) {
-    paste(words[i], words[i + 1], sep = "-")
-  })
-  return(word_pairs)
-}
-
-# Processes the response from chatgpt and returns a list of triad answers
-# @param response       A json structured response from OpenAI
-# @return result_pairs  A list of triad answers
-process_response <- function(response, similarity_scores = FALSE) {
-  message <- tolower(content(response)$choices[[1]]$message$content)
-
-  # Remove where gpt repeats the triad, e.g., "{word1, word2, word3}"
-  message <- str_replace_all(
-    message,
-    "(\\{[\\w]+[^\\w]+[\\w]+[^\\w]+[\\w]+\\}|most similar pair)",
-    ""
-  )
-
-  if (similarity_scores) {
-    # Select similarity scores, e.g., "{word1 and word2, 0.1}"
-    triad_results <- str_extract_all(
-      message,
-      "\\{[\\w]+[^\\w]+[\\w]+[^\\w]+\\d+(\\.\\d+)?\\}"
-    )[[1]]
-
-    # Try another method for the same thing if that failed
-    if (length(triad_results) < 1) {
-      triad_results <- str_extract_all(
-        message,
-        "[\\w]+ (-|–|,) [\\w]+[^\\w]+\\d+(\\.\\d+)?"
-      )[[1]]
-    }
-
-    # Group and save every 2 words (i.e., every triad answer)
-    word_pairs <- extract_pairs(message)
-
-    # Save every similarity score (e.g., 0.8)
-    similarity <- as.numeric(
-      unlist(str_extract_all(triad_results, "[0-9\\.]+"))
+fast_query <- function(rows) {
+  start <- Sys.time()
+  
+  responses <- furrr::future_map(1:nrow(rows), function(i) {
+    cat(i, " ")
+    current_row_responses <- future_lapply(
+      c(rows$p1[i], rows$p2[i], rows$p3[i], rows$p4[i], rows$p5[i], rows$p6[i]), 
+      function(prompt) ask_gpt(
+        prompt = prompt,
+        model = gpt_model,
+        temperature = gpt_temperature,
+        api_key = api_key
+      )
     )
-
-    # Store results
-    results <- tibble(similarity)
-    results <- results %>%
-      mutate(word_pairs = word_pairs) %>%
-      distinct(word_pairs, .keep_all = TRUE) %>%
-      select(word_pairs, everything())
-
-  } else {
-    # When asking ChatGPT only for the most similar pair
-    # Find the answer
-    triad_results <- str_extract_all(
-      message,
-      "\\{[\\w]+[^\\w]+[\\w]+\\}"
-    )[[1]]
-    # Try another method if that failed
-    if (length(triad_results) < 1) {
-      triad_results <- str_extract_all(
-        message,
-        "\\{[\\w]+ (-|–|,) [\\w]+\\}"
-      )[[1]]
-    }
-
-    # Else just try the message itself
-    if (length(triad_results) < 1) {
-      triad_results <- message
-    }
-
-    # Group and save every 2 words (i.e., every triad answer)
-    word_pairs <- extract_pairs(triad_results)
-    results <- tibble(word_pairs) %>%
-      distinct(word_pairs, .keep_all = TRUE)
-  }
-
-  return(results)
+  })
+  
+  print(Sys.time() - start)
+  return(tibble(responses))
 }
+

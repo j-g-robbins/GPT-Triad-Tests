@@ -6,10 +6,6 @@ library(dplyr)
 library(stringr)
 
 # Reads and processes triadic data into a dataframe
-# @param file_path    A string for the path to the file of the dataset
-# @param answer_type  A string specifying the name of the column containing
-# correct answers formatted AB, AC, or BC. If left blank
-# @return triad_data           A dataframe containing the parsed triad data
 process_triad_data <- function(file_path, answer_col = NULL) {
   triad_data <- readr::read_csv(file_path, show_col_types = FALSE)
 
@@ -54,44 +50,67 @@ process_triad_data <- function(file_path, answer_col = NULL) {
     print("Triad answer data not found. Answer frequency should be stored in 
           columns c(AB, AC, BC)")
   }
+  
+  triad_data <- triad_data %>%
+    rowwise %>%
+    mutate(
+      regex = paste0("(", paste(A, B, C, sep = "|"), ")", sep = ""),
+      t1 = NA,
+      t2 = NA,
+      t3 = NA,
+      t4 = NA,
+      t5 = NA,
+      t6 = NA
+    )
+  
+  # Format a triad string for each row of format: '{word_A,word_B,word_C};'
+  for (i in seq(1, nrow(triad_data))) {
+    perms <- list(combinat::permn(c(triad_data[i,]$A, triad_data[i,]$B, triad_data[i,]$C)))[[1]]
+    triad_data[i,]$t1 <- paste0("{", paste(perms[[1]], collapse = ","), "};", sep = "")
+    triad_data[i,]$t2 <- paste0("{", paste(perms[[2]], collapse = ","), "};", sep = "")
+    triad_data[i,]$t3 <- paste0("{", paste(perms[[3]], collapse = ","), "};", sep = "")
+    triad_data[i,]$t4 <- paste0("{", paste(perms[[4]], collapse = ","), "};", sep = "")
+    triad_data[i,]$t5 <- paste0("{", paste(perms[[5]], collapse = ","), "};", sep = "")
+    triad_data[i,]$t6 <- paste0("{", paste(perms[[6]], collapse = ","), "};", sep = "")
+  }
 
   return(triad_data)
 }
 
 
 # Generates prompts by inserting triads between a prompt prefix and suffix
-# @param df             A dataframe containing the triad data
-# @param num_triads     An integer representing the number of triads per prompt
-# @param prompt_start   A string for the prompt section preceeding the triads
-# @param prompt_end     A string for the prompt section following the triads
-# @return prompts       A dataframe containing prompt strings
 generate_prompts <- function(
   triad_data,
-  num_triads,
   prompt_start,
-  prompt_end = ""
+  prompt_end = "",
+  num_triads = 1 # number of triads per prompt, default to 1
 ) {
-  prompts <- data.frame(prompt = character(), stringsAsFactors = FALSE)
+  prompts <- data.frame(
+    p1 = character(), 
+    p2 = character(), 
+    p3 = character(), 
+    p4 = character(), 
+    p5 = character(), 
+    p6 = character(), 
+    regex = character(),
+    stringsAsFactors = FALSE
+  )
 
   # Remaining triads for final prompt
   rem <- nrow(triad_data) %% num_triads
 
   # Build prompts with that many triads from the data
   for (i in seq(from = 1, to = nrow(triad_data) - rem, by = num_triads)) {
-
-    # Add the triads together, format correctly
-    triads <- str_sub(
-      paste(
-        triad_data[seq(i, i + num_triads - 1), ]$triad,
-        collapse = ""
-      ),
-      1,
-      -2
+    
+    prompts <- prompts %>% add_row(
+      p1 = paste(prompt_start, triad_data[seq(i, i + num_triads - 1), ]$t1, prompt_end, sep = ""),
+      p2 = paste(prompt_start, triad_data[seq(i, i + num_triads - 1), ]$t2, prompt_end, sep = ""),
+      p3 = paste(prompt_start, triad_data[seq(i, i + num_triads - 1), ]$t3, prompt_end, sep = ""),
+      p4 = paste(prompt_start, triad_data[seq(i, i + num_triads - 1), ]$t4, prompt_end, sep = ""),
+      p5 = paste(prompt_start, triad_data[seq(i, i + num_triads - 1), ]$t5, prompt_end, sep = ""),
+      p6 = paste(prompt_start, triad_data[seq(i, i + num_triads - 1), ]$t6, prompt_end, sep = ""),
+      regex = triad_data[seq(i, i + num_triads - 1), ]$regex
     )
-
-    next_prompt <- paste(prompt_start, triads, prompt_end, sep = "")
-
-    prompts <- prompts %>% add_row(prompt = next_prompt)
   }
 
   if (rem > 0) {
@@ -105,4 +124,116 @@ generate_prompts <- function(
     prompts <- prompts %>% add_row(prompt = leftovers_prompt)
   }
   return(prompts)
+}
+
+extract_pairs <- function(message) {
+  words <- unlist(str_extract_all(message, "[a-zA-Z]+"))
+  word_pairs <- sapply(seq(1, length(words), 2), function(i) {
+    paste(words[i], words[i + 1], sep = "-")
+  })
+  return(word_pairs)
+}
+
+# Processes the response from chatgpt and returns a list of triad answers
+# @param response       A json structured response from OpenAI
+# @return result_pairs  A list of triad answers
+process_response <- function(response, triad_rx, prompting_method = "explain") {
+  message <- tolower(content(response)$choices[[1]]$message$content)
+  
+  # Remove where gpt repeats the triad, e.g., "{word1, word2, word3}"
+  message <- str_replace_all(
+    message,
+    "(\\{[\\w]+[^\\w]+[\\w]+[^\\w]+[\\w]+\\})",
+    ""
+  )
+    
+  if (prompting_method == "odd") {
+    reg <- paste(
+      "(?<=(odd word )?(.{0,30}))",
+      triad_rx,
+      "(.{0,40})$",
+      sep = ""
+    )
+    triad_results <- str_extract_all(
+      message,
+      reg
+    )
+    
+    results <- tibble(triad_results)
+    
+  } else {
+    if (prompting_method == "basic") {
+      # When asking ChatGPT only for the most similar pair
+      triad_results <- str_extract_all(
+        message,
+        "\\{[\\w]+[^\\w]+[\\w]+\\}"
+      )[[1]]
+      
+      # Try another method if that failed
+      if (length(triad_results) < 1) {
+        triad_results <- str_extract_all(
+          message,
+          "\\{[\\w]+ (-|–|,) [\\w]+\\}"
+        )[[1]]
+      }
+      
+      # Else just try the message itself
+      if (length(triad_results) < 1) {
+        triad_results <- message
+      }
+      
+    } else if (prompting_method == "explain") {
+      # When asking for explanation, followed by selection.
+      reg <- paste(
+        "(?<=most (similar|related) (word )?pair(.{0,30}))",
+        triad_rx,
+        "([\\w\\W\\s]|and){0,10}",
+        triad_rx,
+        sep = ""
+      )
+      triad_results <- str_extract_all(
+        message,
+        reg
+      )
+      triad_results <- triad_results[[1]]
+      if (length(triad_results) < 1) {
+        reg <- paste(
+          triad_rx,
+          "([\\w\\W\\s]|and){0,10}",
+          triad_rx,
+          "(?:.{0,30}are (the )?most (similar |related ))",
+          sep = ""
+        )
+        triad_results <- str_extract_all(
+          message,
+          reg
+        )[[1]]
+      }
+      if (length(triad_results) < 1) {
+        print(reg)
+        return(results <- NA)
+      }
+    }
+    
+    # Group and save every 2 words (i.e., every triad answer)
+    word_pairs <- extract_pairs(triad_results)
+    results <- tibble(word_pairs) %>%
+      distinct(word_pairs, .keep_all = TRUE)
+  }
+  
+  return(results[1,])
+}
+
+
+format_frequencies <- function(row_data) {
+  freqs <- tibble(coded_answer = c('AB', 'BC', 'AC'),
+                  count = c(0, 0, 0))
+  
+  formatted <- freqs %>% 
+    full_join(row_results, by = "coded_answer") %>% 
+    mutate(count = coalesce(count.y, count.x)) %>% 
+    group_by(coded_answer) %>% 
+    summarise(count = sum(count, na.rm = TRUE))
+  
+  return(formatted)
 }

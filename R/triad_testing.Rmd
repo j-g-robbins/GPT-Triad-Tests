@@ -18,205 +18,164 @@ source("./functions/gpt_helpers.R")
 ```
 
 
-## Add your API Key here
+# Add your API Key here.
 ```{r setup api key}
 # Replace this API key with the one you received when registering.
 api_key <- "sk-..."
 ```
 
-## Read data from file
+## Read data in from file.
 ```{r import data}
 triad_data <- process_triad_data(
-  "your_file_path"
+  ""
 )
 ```
 
-
-## Edit the prompt template
-```{r prompt template}
-
-# Format a triad string for each row of format: '{word_A,word_B,word_C};'
-triad_data <- triad_data %>%
-  rowwise %>%
-  mutate(
-    triad = paste0("{", paste(A, B, C, sep = ","), "};", sep = "")
-  )
-
 # Update your prompt to ChatGPT here.
-prompt_start <- "We are going to present you with three words. Your task is to analyse the meaning of all possible word pairs in the triad, and subsequently report the probability that you would choose each pair in the triad as more similar than the others. Your choice is to be based solely in terms of semantic word meaning. This means that phonemic or visual similarity of the words should not be factored into your choice.   
-Here are the steps to complete the analysis:
-Step 1: Closely scrutinize every possible pair in the triad.
-Step 2: After detailed consideration, report the pair you deem most semantically similar.
-You will now be provided with two examples. Note that the specific probabilities of the provided examples are arbitrary for the sake of the example, and the probabilities in the example are not indicative of their true semantic similarity with no explanation.
-Example 1:
-       	Presented: {Angel; Halo; Plate}
-       	Response: {Angel, Halo}
-Example 2:
-Presented: {Hair; Cage; Cheap}
-        	Response: {Cage, Cheap}
-Now that you have been provided with these examples, you are ready to begin the task. Please take as much time as possible to consider all possible word pairings before making a decision on the probabilities.
-Here is the triad:
+```{r format prompt}
+prompt_start <- "We are going to present you with three nouns. Your task is to analyze the word meaning of all possible noun pairs in the triad, and select the odd word out.
+Following are the steps to complete the task:
+Step 1: Closely analyze the words in the triad.
+Step 2: On the basis of step 1, state the odd word out with no further explanation.
+
+You are ready to complete the task. Explain the process of each step, and end your response by stating the odd word out with no explanation.
+Following is the triad: 
 "
 prompt_end <- ""
 
+# Generate a dataframe of prompts
+prompts <- generate_prompts(triad_data, prompt_start, prompt_end)
 ```
 
-## NOTE - If you want to ask chatgpt to return the most similar pair, set similarity_scores to false. If you want to ask for similarity ratings for every word pair, set similarity_scores to true. This requires chatgpt to respond with {word_1 word_2 similarity_rating} for each triad.
 
 ## Adjust specs and generate prompts
 ```{R prompt building}
 
-# Specify how many triads_per_prompt you want to ask per prompt
-triads_per_prompt = 1
+# NOTE: This specifies how we will read chatgpt's output and find the answer.
+# There are some options, but you must be specific in prompting if changing this.
+# odd     - ask for the odd word out, tell chatgpt to state the odd word at the end without further explanation.
+# basic   - ask for only the most similar pair, this will search for {word1, word2} in the response.
+# explain - ask for an explanation of each word pair's relatedness, followed by selection.
+prompt_method = "odd"
 
-# Specify if using similarity scores for word-pairs
-similarity_scores = FALSE
-
-# Optionally filter triads, e.g.
+# Optionally filter triads
 triad_data <- triad_data %>% filter(dataset %in% c("abstract"))
 
-# Generate a dataframe of prompts
-prompts = generate_prompts(
-  triad_data,
-  triads_per_prompt, 
-  prompt_start, 
-  prompt_end
-)
+# Change ChatGPT settings
+gpt_model = "gpt-3.5-turbo"
+gpt_temperature = 0
 
-num_prompts = nrow(prompts)
-cat("You have", num_prompts, "prompts.")
-```
-
-
-## Adjust gpt settings and check cost for full dataset
-```{r gpt costing}
-# Choose your gpt model
-gpt_model <- "gpt-3.5-turbo" # or "gpt-4"
-
-# I believe increases the variance between answers
-gpt_temperature <- 0
-
-# Check the cost
-estimate_cost(
-  gpt_model,
-  nrow(prompts),
-  paste(prompt_start, prompt_end),
-  triads_per_prompt
-)
-```
-
-## Query ChatGPT on a single prompt
-```{r test query}
-# Send one prompt request to ChatGPT
-response <- ask_gpt(prompts[1, ], gpt_model, gpt_temperature, api_key)
-
-# Process response and output a tibble
-print(process_response(response, similarity_scores))
+cat("You have", nrow(prompts), "triads with", 6*nrow(prompts), "prompts")
 
 ```
+## Query ChatGPT on ALL prompts
+```{r query}
+# Prepare batches of prompts
+concurrent <- 20
+p <- prompts %>% select(-regex)
+num_batches <- nrow(p)/concurrent
 
-
-
-```{r}
-# This allows multi-processing using the number of cores that your cpu has
+# Setup
 plan(multisession)
-num_cores = parallel::detectCores()
+responses = tibble()
+overall_start <- Sys.time()
 
-# OpenAI likely limits how many requests you can send at once, I've found 25
-# at once works but feel free to push the limits (although diminishing returns)
-rate_limit = 25
-
-totals <- tibble()
-
-for (i in seq(1, floor(100 / rate_limit))) {
+# Query ChatGPT
+## If this freezes, change '1:num_batches' to '2:num_batches' or however many
+## sets of 20 your code finished before freezing. Data is saved as you go.
+## e.g., if it freezes on 61-80, change it to (3:num_batches).
+for (i in (1:num_batches)) {
+  start_idx <- seq(concurrent*(i-1)+1, concurrent*(i-1)+concurrent)
+  print(range(start_idx))
+  testing <- fast_query(tibble(p)[start_idx,])
   
-  # Get the indexes for each batch (e.g., 1-20, 21-40...)
-  idxs <- seq(1 + (i-1)*rate_limit, (i)*rate_limit)
-  batch <- prompts[idxs, ]
-  cat(idxs[1], "-", idxs[rate_limit], "... ")
-  
-  # Send requests to GPT
-  responses <- value(
-    future_lapply(
-        batch, 
-        function(prompt) ask_gpt( # ask_gpt is my function to send a request
-          prompt = prompt,
-          model = gpt_model,
-          temperature = gpt_temperature,
-          api_key = api_key
-        )
-      )
-  )
-  
-  # Clean up responses (with or without similarity ratings)
-  processed_messages <- lapply(
-    responses, 
-    function(item) process_response(
-      item,
-      similarity_scores
-    )
-  )
-  
-  # Process responses
-  processed_answers <- sapply(processed_messages, function(gpt_message) {
-    
-    # If using similarity scores, the 'answer' is the highest similarity pair
-    if (similarity_scores) {
-      answers <- gpt_message %>% 
-        group_by(group = (row_number() - 1) %/% 3) %>%
-        filter(similarity == max(similarity)) %>%
-        distinct(similarity, .keep_all = TRUE) %>%
-        ungroup() %>%
-        select(-group, -similarity)
-    } else {
-      answers <- gpt_message[[1]]
-    }
-    return(answers[[1]])
-  }, simplify = "matrix") %>% 
-    as_tibble()
-  
-  # Store answers
-  totals <- bind_rows(totals, processed_answers)
+  responses <- bind_rows(responses, testing)
 }
+```
 
-# Cherrypick initial data
-data <- triad_data %>%
-  select(A, B, C, difficulty, human_coded_answer, dataset, category) %>%
-  add_column(
-    gpt_answer = NA,
-    gpt_coded_answer = NA,
-    correct = NA,
-    gpt_message = NA,
-    position = NA
+## Process Response Data
+```{r process responses}
+# Tibble to store results
+responses_tibble <- responses[[1]]
+results <- tibble(
+  AB = double(),
+  AC = double(),
+  BC = double(),
+  answer = character()
+)
+
+# Process Responses
+for (i in (1:length(responses_tibble[[1]]))) {
+  processed_responses <- mapply(
+  function(item, regex) process_response(
+      item,
+      regex,
+      prompt_method
+    ),
+    responses_tibble[[i]],
+    prompts[i,]$regex,
+    SIMPLIFY = FALSE
   )
-
-# Save results
-data$gpt_answer <- totals[[1]]
-
-# For each triad...
-for (j in seq(1, nrow(data))) {
-
-  # Convert the answer into code AB/AC/BC
-  coded_answer <- str_c(
-    ifelse(grepl(data$A[j], data$gpt_answer[j]), "A", ""),
-    ifelse(grepl(data$B[j], data$gpt_answer[j]), "B", ""),
-    ifelse(grepl(data$C[j], data$gpt_answer[j]), "C", ""),
+  row_results <- as_tibble(unlist(lapply(processed_responses, function(x) x$triad_results[[1]])))
+  row_results <- row_results %>%
+  mutate(
+    coded_answer = str_c(
+    ifelse(grepl(triad_data$A[i], value), "", "A"),
+    ifelse(grepl(triad_data$B[i], value), "", "B"),
+    ifelse(grepl(triad_data$C[i], value), "", "C"),
     sep = ""
-  )
-  data$gpt_coded_answer[j] <- coded_answer
-
-  # Check if answer is correct
-  data$correct[j] <- grepl(coded_answer, data$human_coded_answer[j])
+    )
+  ) %>% 
+    group_by(coded_answer) %>%
+    summarize(count = n())
   
-  # Store extra response data
-  data$gpt_message[j] <- content(response)$choices[[1]]$message$content
-  data$position[j] <- (j - 1) %% triads_per_prompt + 1
+  highest_count <- row_results %>% 
+    arrange(desc(count)) %>%
+    slice(1)
+  
+  freqs <- format_frequencies(row_results)
+  
+  results <- results %>%
+    add_row(
+      AB = freqs[freqs$coded_answer == "AB", ]$count,
+      AC = freqs[freqs$coded_answer == "AC", ]$count,
+      BC = freqs[freqs$coded_answer == "BC", ]$count,
+      answer = highest_count$coded_answer
+  )
+  
 }
 
 ```
 
-## Process and summarise results
+## Run data analysis
+```{r data analysis}
+################### Figure out how to do fisher exact tests ####################
+expected <- triad_data %>% 
+  select(pAB, pAC, pBC) %>% 
+  mutate_all(~ . *6)
+observed <- results
+
+```
+
+## Display results
 ```{r results}
+# Cherrypick initial data for output
+data <- triad_data %>%
+  select(A, B, C, difficulty, human_coded_answer, dataset, category, pAB, pAC, pBC) %>% 
+  add_column(
+    gpt_pAB = results$oAB,
+    gpt_pAC = results$oAC,
+    gpt_pBC = results$oBC,
+    gpt_coded_answer = results$answer,
+    correct = NA,
+    #gpt_answer = NA,
+) %>% 
+  rowwise %>% 
+  mutate(
+    correct = grepl(gpt_coded_answer, human_coded_answer)
+  )
+
+# Incorrect response data
 datafalse <- data %>%
   filter(correct == "FALSE") %>%
   select(
@@ -226,9 +185,10 @@ datafalse <- data %>%
     A, B, C,
     human_coded_answer,
     gpt_coded_answer,
-    gpt_answer,
+    #gpt_answer,
   )
 
+# Accuracy by triad category
 percentage_by_category <- data %>%
   group_by(category) %>%
   summarise(
@@ -237,6 +197,7 @@ percentage_by_category <- data %>%
   ) %>%
   select(category, accuracy, count)
 
+# Accuracy by answer (checking for word order bias)
 percentage_by_answer <- data %>%
   group_by(human_coded_answer) %>%
   summarise(
@@ -245,6 +206,7 @@ percentage_by_answer <- data %>%
   ) %>%
   select(human_coded_answer, accuracy, count)
 
+# Summary stats data
 summary_stats <- tibble(
   "------OVERALL------" = "----------------------------",
   score = paste(sum(data$correct, na.rm = TRUE), "/", nrow(triad_data)),
@@ -289,4 +251,7 @@ print(datafalse)
 
 # Overall summary stats
 print(summary_stats)
+
+data
+    
 ```
