@@ -105,7 +105,7 @@ results <- tibble(
 )
 
 # Process Responses
-for (i in (1:length(responses_tibble[[1]]))) {
+for (i in (1:length(responses_tibble))) {
   processed_responses <- mapply(
   function(item, regex) process_response(
       item,
@@ -117,17 +117,32 @@ for (i in (1:length(responses_tibble[[1]]))) {
     SIMPLIFY = FALSE
   )
   row_results <- as_tibble(unlist(lapply(processed_responses, function(x) x$triad_results[[1]])))
-  row_results <- row_results %>%
-  mutate(
-    coded_answer = str_c(
-    ifelse(grepl(triad_data$A[i], value), "", "A"),
-    ifelse(grepl(triad_data$B[i], value), "", "B"),
-    ifelse(grepl(triad_data$C[i], value), "", "C"),
-    sep = ""
-    )
-  ) %>% 
-    group_by(coded_answer) %>%
-    summarize(count = n())
+  
+  if (prompt_method == "odd") {
+    row_results <- row_results %>%
+    mutate(
+      coded_answer = str_c(
+      ifelse(grepl(triad_data$A[i], value), "", "A"),
+      ifelse(grepl(triad_data$B[i], value), "", "B"),
+      ifelse(grepl(triad_data$C[i], value), "", "C"),
+      sep = ""
+      )
+    ) %>% 
+      group_by(coded_answer) %>%
+      summarize(count = n())
+  } else {
+    row_results <- row_results %>%
+    mutate(
+      coded_answer = str_c(
+      ifelse(grepl(triad_data$A[i], value), "A", ""),
+      ifelse(grepl(triad_data$B[i], value), "B", ""),
+      ifelse(grepl(triad_data$C[i], value), "C", ""),
+      sep = ""
+      )
+    ) %>% 
+      group_by(coded_answer) %>%
+      summarize(count = n())
+  }
   
   highest_count <- row_results %>% 
     arrange(desc(count)) %>%
