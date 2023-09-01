@@ -18,7 +18,7 @@ The answer is formatted programmatically as the letters corresponding to the wor
 
 **Data**
 - This program takes a csv containg triad data. Columns required are:
-`. `A, B, C` for each word of each triad
+-  `A, B, C` for each word of each triad
 2. `AB, AC, BC` with the frequency of each word response from participants (if applicable)
 Fields you can easily customise are:
 
