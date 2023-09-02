@@ -33,33 +33,27 @@ triad_data <- process_triad_data(
 
 # Update your prompt to ChatGPT here.
 ```{r format prompt}
-prompt_start <- "We are going to present you with three nouns. Your task is to analyze the word meaning of all possible noun pairs in the triad, and select the odd word out.
+prompt_start <- "We are going to present you with three nouns. Your task is to analyze the word meaning of all possible noun pairs in the triad, and select the most related word pair.
 Following are the steps to complete the task:
 Step 1: Closely analyze the words in the triad.
-Step 2: On the basis of step 1, state the odd word out with no further explanation.
+Step 2: On the basis of step 1, state the most related word pair with no further explanation.
 
-You are ready to complete the task. Explain the process of each step, and end your response by stating the odd word out with no explanation.
-Following is the triad: 
+You are ready to complete the task. Explain the process of each step, and end your response by stating the most related word pair with no explanation.
+Following is the triad:
 "
 prompt_end <- ""
 
+# Optionally filter triads
+triad_data <- triad_data %>% filter(dataset %in% c("abstract"))
+
 # Generate a dataframe of prompts
 prompts <- generate_prompts(triad_data, prompt_start, prompt_end)
-```
-
-
-## Adjust specs and generate prompts
-```{R prompt building}
 
 # NOTE: This specifies how we will read chatgpt's output and find the answer.
 # There are some options, but you must be specific in prompting if changing this.
 # odd     - ask for the odd word out, tell chatgpt to state the odd word at the end without further explanation.
 # basic   - ask for only the most similar pair, this will search for {word1, word2} in the response.
-# explain - ask for an explanation of each word pair's relatedness, followed by selection.
-prompt_method = "odd"
-
-# Optionally filter triads
-triad_data <- triad_data %>% filter(dataset %in% c("abstract"))
+prompt_method = "basic"
 
 # Change ChatGPT settings
 gpt_model = "gpt-3.5-turbo"
@@ -83,7 +77,7 @@ overall_start <- Sys.time()
 # Query ChatGPT
 ## If this freezes, change '1:num_batches' to '2:num_batches' or however many
 ## sets of 20 your code finished before freezing. Data is saved as you go.
-## e.g., if it freezes on 61-80, change it to (3:num_batches).
+## e.g., if it freezes on 61-80, change it to (3:num_batches) and rerun FROM L88
 for (i in (1:num_batches)) {
   start_idx <- seq(concurrent*(i-1)+1, concurrent*(i-1)+concurrent)
   print(range(start_idx))
@@ -91,6 +85,7 @@ for (i in (1:num_batches)) {
   
   responses <- bind_rows(responses, testing)
 }
+closeAllConnections()
 ```
 
 ## Process Response Data
@@ -116,9 +111,9 @@ for (i in (1:length(responses_tibble))) {
     prompts[i,]$regex,
     SIMPLIFY = FALSE
   )
-  row_results <- as_tibble(unlist(lapply(processed_responses, function(x) x$triad_results[[1]])))
   
   if (prompt_method == "odd") {
+    row_results <- as_tibble(unlist(lapply(processed_responses, function(x) x$triad_results[[1]])))
     row_results <- row_results %>%
     mutate(
       coded_answer = str_c(
@@ -131,6 +126,7 @@ for (i in (1:length(responses_tibble))) {
       group_by(coded_answer) %>%
       summarize(count = n())
   } else {
+    row_results <- as_tibble(unlist(lapply(seq(1:6), function(i) processed_responses[[i]])))
     row_results <- row_results %>%
     mutate(
       coded_answer = str_c(

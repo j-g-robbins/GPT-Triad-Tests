@@ -101,7 +101,7 @@ generate_prompts <- function(
 
   # Build prompts with that many triads from the data
   for (i in seq(from = 1, to = nrow(triad_data) - rem, by = num_triads)) {
-    
+
     prompts <- prompts %>% add_row(
       p1 = paste(prompt_start, triad_data[seq(i, i + num_triads - 1), ]$t1, prompt_end, sep = ""),
       p2 = paste(prompt_start, triad_data[seq(i, i + num_triads - 1), ]$t2, prompt_end, sep = ""),
@@ -139,14 +139,14 @@ extract_pairs <- function(message) {
 # @return result_pairs  A list of triad answers
 process_response <- function(response, triad_rx, prompting_method = "explain") {
   message <- tolower(content(response)$choices[[1]]$message$content)
-  
+
   # Remove where gpt repeats the triad, e.g., "{word1, word2, word3}"
   message <- str_replace_all(
     message,
     "(\\{[\\w]+[^\\w]+[\\w]+[^\\w]+[\\w]+\\})",
     ""
   )
-    
+
   if (prompting_method == "odd") {
     reg <- paste(
       "(?<=(odd word )?(.{0,30}))",
@@ -158,69 +158,34 @@ process_response <- function(response, triad_rx, prompting_method = "explain") {
       message,
       reg
     )
-    
+
     results <- tibble(triad_results)
-    
+
   } else {
     if (prompting_method == "basic") {
+      reg <- paste(
+        triad_rx,
+        "(.{0,30})",
+        triad_rx,
+        "(.{0,20})$",
+        sep = ""
+      )
       # When asking ChatGPT only for the most similar pair
       triad_results <- str_extract_all(
         message,
-        "\\{[\\w]+[^\\w]+[\\w]+\\}"
-      )[[1]]
-      
-      # Try another method if that failed
-      if (length(triad_results) < 1) {
-        triad_results <- str_extract_all(
-          message,
-          "\\{[\\w]+ (-|–|,) [\\w]+\\}"
-        )[[1]]
-      }
-      
-      # Else just try the message itself
-      if (length(triad_results) < 1) {
-        triad_results <- message
-      }
-      
-    } else if (prompting_method == "explain") {
-      # When asking for explanation, followed by selection.
-      reg <- paste(
-        "(?<=most (similar|related) (word )?pair(.{0,30}))",
-        triad_rx,
-        "([\\w\\W\\s]|and){0,10}",
-        triad_rx,
-        sep = ""
-      )
-      triad_results <- str_extract_all(
-        message,
         reg
-      )
-      triad_results <- triad_results[[1]]
-      if (length(triad_results) < 1) {
-        reg <- paste(
-          triad_rx,
-          "([\\w\\W\\s]|and){0,10}",
-          triad_rx,
-          "(?:.{0,30}are (the )?most (similar |related ))",
-          sep = ""
-        )
-        triad_results <- str_extract_all(
-          message,
-          reg
-        )[[1]]
+      )[[1]]
+      if (length(triad_results) > 0) {
+        triad_results <- paste(str_extract_all(
+          triad_results,
+          triad_rx
+        )[[1]], collapse = " ")
       }
-      if (length(triad_results) < 1) {
-        print(reg)
-        return(results <- NA)
-      }
+      return(triad_results)
     }
-    
-    # Group and save every 2 words (i.e., every triad answer)
-    word_pairs <- extract_pairs(triad_results)
-    results <- tibble(word_pairs) %>%
-      distinct(word_pairs, .keep_all = TRUE)
   }
-  
+  #print(reg)
+  #print(triad_results)
   return(results[1,])
 }
 
