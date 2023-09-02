@@ -6,10 +6,14 @@ A triad is a word task where the participant has to select the two words that ar
 - `{ complaint, harm, phobia }`
 The answer is formatted programmatically as the letters corresponding to the word pair, so complaint-harm would be AB.
 
+## Parallelization
+- Using the `future` and `future.apply` libraries we are able to speed up querying time.
+- This allows us to run 120+ prompts concurrently, reducing the wait time (at 10s/query for example) for 600 prompts from 90m when serialized to <5 minutes when parallelised (literal difference varies by prompt I/O size)
+
 ## Data Pipeline
 1. The program reads in CSV triad data.
 2. It then takes a prompt format, and generates (suboptimal, I know) 6 prompts for each triad in the dataset, one for each possible word order.
-3. ChatGPT is then queried for the prompts in parallel, to speed up processing time. This allows us to run >120 prompts concurrently, reducing the wait time for 600 prompts from 90 minutes when serialized to 2.5 minutes when parallelised (estimated at ~ 9 seconds per prompt)
+3. ChatGPT is then queried for the prompts in parallel, to speed up processing time.
 4. The responses are then processed, answers are parsed via (weak) regex strategies and then coded as answers to the triad. This processing returns the frequency of selection of each triad answer.
 5. Data analysis is then run, using statistical tests **TBD**
 6. Results are then displayed in tabular form.
