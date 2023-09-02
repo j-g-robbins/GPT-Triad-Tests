@@ -178,9 +178,9 @@ observed <- results
 data <- triad_data %>%
   select(A, B, C, difficulty, human_coded_answer, dataset, category, pAB, pAC, pBC) %>% 
   add_column(
-    gpt_pAB = results$oAB,
-    gpt_pAC = results$oAC,
-    gpt_pBC = results$oBC,
+    gpt_pAB = results$AB,
+    gpt_pAC = results$AC,
+    gpt_pBC = results$BC,
     gpt_coded_answer = results$answer,
     correct = NA,
     #gpt_answer = NA,
